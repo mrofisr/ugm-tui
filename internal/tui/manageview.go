@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/mrofisr/ugm-tui/internal/audit"
 	"github.com/mrofisr/ugm-tui/internal/usermgmt"
 )
 
@@ -23,6 +24,8 @@ const (
 	_actionAddGroup
 	_actionRemoveGroup
 	_actionPasswdAging
+	_actionCreateGroup
+	_actionDeleteGroup
 )
 
 // ManageView provides user management actions.
@@ -47,6 +50,8 @@ var _menuItems = []string{
 	"Add to Group (assign role)",
 	"Remove from Group",
 	"View Password Aging Info",
+	"Create Group (new role)",
+	"Delete Group",
 }
 
 func newManageView() ManageView {
@@ -85,11 +90,11 @@ func (v ManageView) update(msg tea.Msg) (ManageView, tea.Cmd) {
 	case _actionCreate:
 		return v.updateCreate(msg)
 	case _actionDelete:
-		return v.updateConfirm(msg, "delete", func() error { return usermgmt.DeleteUser(v.targetUser) })
+		return v.updateConfirm(msg, "delete", "userdel -r "+v.targetUser, func() error { return usermgmt.DeleteUser(v.targetUser) })
 	case _actionLock:
-		return v.updateConfirm(msg, "lock", func() error { return usermgmt.LockUser(v.targetUser) })
+		return v.updateConfirm(msg, "lock", "usermod --lock "+v.targetUser, func() error { return usermgmt.LockUser(v.targetUser) })
 	case _actionUnlock:
-		return v.updateConfirm(msg, "unlock", func() error { return usermgmt.UnlockUser(v.targetUser) })
+		return v.updateConfirm(msg, "unlock", "usermod --unlock "+v.targetUser, func() error { return usermgmt.UnlockUser(v.targetUser) })
 	case _actionExpiry:
 		return v.updateExpiry(msg)
 	case _actionAddGroup:
@@ -97,12 +102,15 @@ func (v ManageView) update(msg tea.Msg) (ManageView, tea.Cmd) {
 	case _actionRemoveGroup:
 		return v.updateGroupInput(msg, "remove", usermgmt.RemoveFromGroup)
 	case _actionPasswdAging:
-		// read-only view, any key goes back
 		if _, ok := msg.(tea.KeyPressMsg); ok {
 			v.action = _actionMenu
 			v.infoText = ""
 		}
 		return v, nil
+	case _actionCreateGroup:
+		return v.updateSingleInput(msg, "create-group", usermgmt.CreateGroup)
+	case _actionDeleteGroup:
+		return v.updateSingleInput(msg, "delete-group", usermgmt.DeleteGroup)
 	}
 	return v, nil
 }
@@ -115,11 +123,17 @@ func (v ManageView) view() string {
 	case _actionCreate:
 		s = v.viewCreate()
 	case _actionDelete:
-		s = v.viewConfirmPrompt("Delete User", fmt.Sprintf("Delete user '%s' and their home directory?", v.targetUser))
+		s = v.viewConfirmPrompt("Delete User",
+			fmt.Sprintf("Delete user '%s' and their home directory?", v.targetUser),
+			"userdel -r "+v.targetUser)
 	case _actionLock:
-		s = v.viewConfirmPrompt("Lock User", fmt.Sprintf("Lock user '%s'? This will disable login.", v.targetUser))
+		s = v.viewConfirmPrompt("Lock User",
+			fmt.Sprintf("Lock user '%s'? This will disable login.", v.targetUser),
+			"usermod --lock "+v.targetUser)
 	case _actionUnlock:
-		s = v.viewConfirmPrompt("Unlock User", fmt.Sprintf("Unlock user '%s'?", v.targetUser))
+		s = v.viewConfirmPrompt("Unlock User",
+			fmt.Sprintf("Unlock user '%s'?", v.targetUser),
+			"usermod --unlock "+v.targetUser)
 	case _actionExpiry:
 		s = v.viewExpiry()
 	case _actionAddGroup:
@@ -128,6 +142,10 @@ func (v ManageView) view() string {
 		s = v.viewGroupInput("Remove from Group")
 	case _actionPasswdAging:
 		s = v.viewInfo("Password Aging Info")
+	case _actionCreateGroup:
+		s = v.viewSingleInput("Create Group", "group name")
+	case _actionDeleteGroup:
+		s = v.viewSingleInput("Delete Group", "group name")
 	}
 	if v.status != "" {
 		s += "\n\n" + v.status
@@ -179,6 +197,12 @@ func (v ManageView) updateMenu(msg tea.Msg) (ManageView, tea.Cmd) {
 				} else {
 					v.infoText = info
 				}
+			case 8:
+				v.action = _actionCreateGroup
+				v.initSingleInput("e.g. devops, docker, deploy")
+			case 9:
+				v.action = _actionDeleteGroup
+				v.initSingleInput("group to delete")
 			}
 		}
 	}
@@ -202,9 +226,9 @@ func (v ManageView) viewMenu() string {
 	return b.String()
 }
 
-// --- Generic confirm (y/n) ---
+// --- Generic confirm (y/n) with command preview ---
 
-func (v ManageView) updateConfirm(msg tea.Msg, verb string, fn func() error) (ManageView, tea.Cmd) {
+func (v ManageView) updateConfirm(msg tea.Msg, verb, cmdPreview string, fn func() error) (ManageView, tea.Cmd) {
 	if msg, ok := msg.(tea.KeyPressMsg); ok {
 		switch msg.String() {
 		case "y":
@@ -212,6 +236,7 @@ func (v ManageView) updateConfirm(msg tea.Msg, verb string, fn func() error) (Ma
 				v.status = _errorStyle.Render(fmt.Sprintf("%s failed: %s", verb, err))
 			} else {
 				v.status = _successStyle.Render(fmt.Sprintf("User '%s' %sed!", v.targetUser, verb))
+				audit.Log(verb, v.targetUser, cmdPreview)
 			}
 			v.action = _actionMenu
 		case "n":
@@ -221,10 +246,11 @@ func (v ManageView) updateConfirm(msg tea.Msg, verb string, fn func() error) (Ma
 	return v, nil
 }
 
-func (v ManageView) viewConfirmPrompt(title, prompt string) string {
-	return fmt.Sprintf("%s\n\n%s\n\n%s",
+func (v ManageView) viewConfirmPrompt(title, prompt, cmdPreview string) string {
+	return fmt.Sprintf("%s\n\n%s\n\n%s\n\n%s",
 		_headerStyle.Render(title),
 		_promptStyle.Render(prompt),
+		_previewStyle.Render("$ "+cmdPreview),
 		_dividerStyle.Render("y confirm • n cancel • esc back"),
 	)
 }
@@ -299,12 +325,20 @@ func (v ManageView) submitCreate() (ManageView, tea.Cmd) {
 		v.status = _errorStyle.Render("Create failed: " + err.Error())
 		return v, nil
 	}
+	audit.Log("create-user", username, fmt.Sprintf("useradd -m -s %s %s", shell, username))
+
 	if secret != "" {
 		var err error
 		if v.authIsSSH {
 			err = usermgmt.SetSSHKey(username, secret)
+			if err == nil {
+				audit.Log("set-ssh-key", username, "wrote authorized_keys")
+			}
 		} else {
 			err = usermgmt.SetPassword(username, secret)
+			if err == nil {
+				audit.Log("set-password", username, "chpasswd")
+			}
 		}
 		if err != nil {
 			v.status = _errorStyle.Render("Auth setup failed: " + err.Error())
@@ -323,6 +357,16 @@ func (v ManageView) viewCreate() string {
 		authLabel = "Auth: [SSH Key]"
 	}
 
+	username := v.inputs[0].Value()
+	shell := v.inputs[1].Value()
+	if username == "" {
+		username = "<username>"
+	}
+	if shell == "" {
+		shell = "/bin/bash"
+	}
+	preview := fmt.Sprintf("useradd -m -s %s %s", shell, username)
+
 	labels := []string{"Username", "Shell", authLabel, "Secret"}
 	var b strings.Builder
 	b.WriteString(title + "\n\n")
@@ -333,7 +377,8 @@ func (v ManageView) viewCreate() string {
 		}
 		fmt.Fprintf(&b, "%s%s: %s\n", cursor, labels[i], input.View())
 	}
-	b.WriteString("\n" + _dividerStyle.Render("tab next field (on Auth: toggle mode) • enter submit • esc back"))
+	b.WriteString("\n" + _previewStyle.Render("$ "+preview))
+	b.WriteString("\n\n" + _dividerStyle.Render("tab next field (on Auth: toggle mode) • enter submit • esc back"))
 	return b.String()
 }
 
@@ -355,10 +400,12 @@ func (v ManageView) updateExpiry(msg tea.Msg) (ManageView, tea.Cmd) {
 				v.status = _errorStyle.Render("Date is required (YYYY-MM-DD)")
 				return v, nil
 			}
+			cmd := fmt.Sprintf("chage --expiredate %s %s", date, v.targetUser)
 			if err := usermgmt.SetExpiry(v.targetUser, date); err != nil {
 				v.status = _errorStyle.Render("Set expiry failed: " + err.Error())
 			} else {
 				v.status = _successStyle.Render(fmt.Sprintf("Expiry for '%s' set to %s", v.targetUser, date))
+				audit.Log("set-expiry", v.targetUser, cmd)
 			}
 			v.action = _actionMenu
 			return v, nil
@@ -371,10 +418,16 @@ func (v ManageView) updateExpiry(msg tea.Msg) (ManageView, tea.Cmd) {
 }
 
 func (v ManageView) viewExpiry() string {
-	return fmt.Sprintf("%s\n\n  User: %s\n  Date: %s\n\n%s",
+	date := v.inputs[0].Value()
+	if date == "" {
+		date = "YYYY-MM-DD"
+	}
+	preview := fmt.Sprintf("chage --expiredate %s %s", date, v.targetUser)
+	return fmt.Sprintf("%s\n\n  User: %s\n  Date: %s\n\n%s\n\n%s",
 		_headerStyle.Render("Set Expiry Date"),
 		_promptStyle.Render(v.targetUser),
 		v.inputs[0].View(),
+		_previewStyle.Render("$ "+preview),
 		_dividerStyle.Render("enter submit • esc back"),
 	)
 }
@@ -401,6 +454,7 @@ func (v ManageView) updateGroupInput(msg tea.Msg, verb string, fn func(string, s
 				v.status = _errorStyle.Render(fmt.Sprintf("%s group failed: %s", verb, err))
 			} else {
 				v.status = _successStyle.Render(fmt.Sprintf("User '%s' %sed group '%s'", v.targetUser, verb, grp))
+				audit.Log(verb+"-group", v.targetUser, "group="+grp)
 			}
 			v.action = _actionMenu
 			return v, nil
@@ -413,10 +467,81 @@ func (v ManageView) updateGroupInput(msg tea.Msg, verb string, fn func(string, s
 }
 
 func (v ManageView) viewGroupInput(title string) string {
-	return fmt.Sprintf("%s\n\n  User: %s\n  Group: %s\n\n%s",
+	grp := v.inputs[0].Value()
+	var preview string
+	if title == "Add to Group" {
+		if grp == "" {
+			grp = "<group>"
+		}
+		preview = fmt.Sprintf("usermod -aG %s %s", grp, v.targetUser)
+	} else {
+		if grp == "" {
+			grp = "<group>"
+		}
+		preview = fmt.Sprintf("gpasswd -d %s %s", v.targetUser, grp)
+	}
+	return fmt.Sprintf("%s\n\n  User: %s\n  Group: %s\n\n%s\n\n%s",
 		_headerStyle.Render(title),
 		_promptStyle.Render(v.targetUser),
 		v.inputs[0].View(),
+		_previewStyle.Render("$ "+preview),
+		_dividerStyle.Render("enter submit • esc back"),
+	)
+}
+
+// --- Single input (group create/delete) ---
+
+func (v *ManageView) initSingleInput(placeholder string) {
+	v.focusIdx = 0
+	v.inputs = make([]textinput.Model, 1)
+	v.inputs[0] = textinput.New()
+	v.inputs[0].Placeholder = placeholder
+	v.inputs[0].Focus()
+}
+
+func (v ManageView) updateSingleInput(msg tea.Msg, verb string, fn func(string) error) (ManageView, tea.Cmd) {
+	if msg, ok := msg.(tea.KeyPressMsg); ok {
+		if msg.String() == "enter" {
+			val := v.inputs[0].Value()
+			if val == "" {
+				v.status = _errorStyle.Render("Value is required")
+				return v, nil
+			}
+			if err := fn(val); err != nil {
+				v.status = _errorStyle.Render(fmt.Sprintf("%s failed: %s", verb, err))
+			} else {
+				v.status = _successStyle.Render(fmt.Sprintf("'%s' %sd!", val, verb))
+				audit.Log(verb, val, "")
+			}
+			v.action = _actionMenu
+			return v, nil
+		}
+	}
+
+	var cmd tea.Cmd
+	v.inputs[0], cmd = v.inputs[0].Update(msg)
+	return v, cmd
+}
+
+func (v ManageView) viewSingleInput(title, label string) string {
+	val := v.inputs[0].Value()
+	var preview string
+	if title == "Create Group" {
+		if val == "" {
+			val = "<name>"
+		}
+		preview = "groupadd " + val
+	} else {
+		if val == "" {
+			val = "<name>"
+		}
+		preview = "groupdel " + val
+	}
+	return fmt.Sprintf("%s\n\n  %s: %s\n\n%s\n\n%s",
+		_headerStyle.Render(title),
+		label,
+		v.inputs[0].View(),
+		_previewStyle.Render("$ "+preview),
 		_dividerStyle.Render("enter submit • esc back"),
 	)
 }

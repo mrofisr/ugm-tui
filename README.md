@@ -13,12 +13,18 @@ A terminal user interface (TUI) to view and manage UNIX users and groups.
 - Browse system users and groups with fuzzy search
 - View user details (UID, GID, home directory, group memberships)
 - View group details and member lists
+- **Account status badges** — ✅ active, 🔒 locked, ⚠️ expiring — visible in the user list
+- **Last login** display in user detail view
+- **System user filter** — press `s` to toggle system accounts (UID < 1000)
 - **Create new users** with custom shell and password or SSH key authentication
 - **Delete users** and their home directory (`userdel -r`)
 - **Lock/unlock users** to revoke or restore access (`usermod --lock/--unlock`)
 - **Set account expiry** for time-limited access (`chage --expiredate`)
 - **Add/remove users from groups** for role-based access (`usermod -aG`, `gpasswd -d`)
+- **Create/delete groups** to define roles (`groupadd`, `groupdel`)
 - **View password aging info** (`chage -l`)
+- **Command preview** — see the exact command before confirming destructive actions
+- **Audit log** — all actions logged to `/var/log/ugm-audit.log` with timestamp and operator
 
 ## Requirements
 
@@ -57,6 +63,7 @@ sudo ugm
 | `/` | Search |
 | `Enter` | Apply search |
 | `m` | Manage selected user |
+| `s` | Toggle system users (UID < 1000) |
 
 ### Management Actions
 
@@ -72,6 +79,8 @@ Press `m` on a selected user to open the management menu:
 | **Add to Group** | Assign a role by adding user to a group (`usermod -aG`). |
 | **Remove from Group** | Revoke a role by removing user from a group (`gpasswd -d`). |
 | **View Password Aging** | Display password aging info via `chage -l`. |
+| **Create Group** | Create a new group/role (`groupadd`). |
+| **Delete Group** | Remove a group (`groupdel`). |
 
 #### Management Navigation
 
@@ -83,6 +92,17 @@ Press `m` on a selected user to open the management menu:
 | `Tab` | Next field (in forms) / Toggle auth method |
 | `y` / `n` | Confirm / Cancel (delete, lock, unlock) |
 | `Esc` | Back to previous view |
+
+### Audit Log
+
+All management actions are logged to `/var/log/ugm-audit.log`:
+
+```
+2026-04-09T16:30:00+07:00 operator=abdur action=create-user target=rafi useradd -m -s /bin/bash rafi
+2026-04-09T16:31:00+07:00 operator=abdur action=lock target=rafi usermod --lock rafi
+```
+
+The operator is detected from `$SUDO_USER`.
 
 ## Development
 
@@ -118,6 +138,7 @@ make all     # fmt + fix + build
     ├── group/               # Parses /etc/group
     ├── usermgmt/            # User management (create, delete, lock, unlock,
     │                        #   expiry, groups, SSH keys, password aging)
+    ├── audit/               # Action audit logging
     └── tui/
         ├── tui.go           # Root model, state management
         ├── style.go         # Shared styles

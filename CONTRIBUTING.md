@@ -81,6 +81,7 @@ This project follows the [Google Go Style Guide](https://google.github.io/styleg
 - Add doc comments to all exported types and functions
 - Ensure `make lint` reports 0 issues
 - Update `README.md` if you add new features or keybindings
+- All management actions must write to the audit log
 - Don't break existing tests
 
 ## Project Structure
@@ -93,6 +94,7 @@ This project follows the [Google Go Style Guide](https://google.github.io/styleg
     ├── group/               # Parses /etc/group
     ├── usermgmt/            # User management (create, delete, lock, unlock,
     │                        #   expiry, groups, SSH keys, password aging)
+    ├── audit/               # Action audit logging
     └── tui/
         ├── tui.go           # Root model, state management
         ├── style.go         # Shared styles
