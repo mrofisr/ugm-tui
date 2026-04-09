@@ -25,7 +25,22 @@ jobs:
       - name: Check formatting
         run: |
           go install mvdan.cc/gofumpt@latest
-          test -z "$(gofumpt -l .)" || (echo "Run 'make fmt' to fix formatting"; exit 1)
+          UNFORMATTED=$(gofumpt -l .)
+          if [ -n "$UNFORMATTED" ]; then
+            echo "::error::Unformatted files found. Run 'make fmt' to fix."
+            echo "$UNFORMATTED"
+            exit 1
+          fi
+
+      - name: Job Summary
+        if: always()
+        run: |
+          echo "## 🔍 Lint Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| golangci-lint | ${{ steps.lint.outcome == 'failure' && '❌ Failed' || '✅ Passed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| gofumpt | ${{ job.status == 'failure' && '❌ Failed' || '✅ Passed' }} |" >> $GITHUB_STEP_SUMMARY
 
   build:
     needs: lint
@@ -42,7 +57,29 @@ jobs:
           go-version: ${{ matrix.go-version }}
 
       - name: Build
-        run: go build ./...
+        run: go build -o ugm .
 
       - name: Test
-        run: go test ./...
+        id: test
+        run: go test -v ./... 2>&1 | tee test-output.txt
+
+      - name: Job Summary
+        if: always()
+        run: |
+          echo "## 🏗️ Build & Test — Go ${{ matrix.go-version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Step | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Build | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.test.outcome }}" == "failure" ]; then
+            echo "| Test | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Test | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "<details><summary>Test Output</summary>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat test-output.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY

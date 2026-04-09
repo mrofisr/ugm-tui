@@ -8,9 +8,6 @@ on:
 permissions:
   contents: write
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -25,9 +22,28 @@ jobs:
           go-version: '1.26'
 
       - name: Run GoReleaser
+        id: goreleaser
         uses: goreleaser/goreleaser-action@v6
         with:
           version: latest
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Job Summary
+        if: always()
+        run: |
+          echo "## 🚀 Release — ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.goreleaser.outcome }}" == "failure" ]; then
+            echo "❌ **Release failed**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ **Release published successfully**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Platform | Archive |" >> $GITHUB_STEP_SUMMARY
+            echo "|----------|---------|" >> $GITHUB_STEP_SUMMARY
+            echo "| Linux | \`ugm_linux_amd64\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| FreeBSD | \`ugm_freebsd_amd64\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| OpenBSD | \`ugm_openbsd_amd64\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| NetBSD | \`ugm_netbsd_amd64\` |" >> $GITHUB_STEP_SUMMARY
+          fi
