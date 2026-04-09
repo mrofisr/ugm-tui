@@ -5,12 +5,12 @@ import (
 	"os/user"
 	"strings"
 
+	"charm.land/bubbles/v2/table"
+	"charm.land/lipgloss/v2"
 	"github.com/ariasmn/ugm/internal/tui/common"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/evertras/bubble-table/table"
-	"github.com/muesli/reflow/wordwrap"
 )
 
+// View renders the group list and detail panel.
 func (bg BubbleGroup) View() string {
 	bg.viewport.SetContent(bg.detailView())
 
@@ -20,15 +20,14 @@ func (bg BubbleGroup) View() string {
 
 func (bg BubbleGroup) listView() string {
 	bg.list.Styles.Title = common.ListColorStyle
-	bg.list.Styles.FilterPrompt.Foreground(common.ListColorStyle.GetBackground())
-	bg.list.Styles.FilterCursor.Foreground(common.ListColorStyle.GetBackground())
 
 	return common.ListStyle.Render(bg.list.View())
 }
 
 func (bg BubbleGroup) detailView() string {
 	builder := &strings.Builder{}
-	divider := common.DividerStyle.Render(strings.Repeat("-", bg.viewport.Width)) + "\n"
+	vpWidth := bg.viewport.Width()
+	divider := common.DividerStyle.Render(strings.Repeat("-", vpWidth)) + "\n"
 	detailsHeader := common.HeaderStyle.Render("Details")
 	memberOfHeader := common.HeaderStyle.Render("Current members")
 
@@ -37,9 +36,9 @@ func (bg BubbleGroup) detailView() string {
 		builder.WriteString(renderGroupDetails(it.(item).Details))
 		builder.WriteString(divider)
 		builder.WriteString(memberOfHeader)
-		builder.WriteString(fmt.Sprintf("\n\n%s", renderUserTable(it.(item).Users)))
+		fmt.Fprintf(builder, "\n\n%s", renderUserTable(it.(item).Users))
 	}
-	details := wordwrap.String(builder.String(), bg.viewport.Width)
+	details := common.WordWrap(builder.String(), vpWidth)
 
 	return common.DetailStyle.Render(details)
 }
@@ -52,31 +51,31 @@ func renderGroupDetails(group user.Group) string {
 }
 
 func renderUserTable(users []*user.User) string {
-	rows := []table.Row{}
-
-	for _, user := range users {
-		if user == nil {
-			return "No users in this group"
-		}
-		rows = append(rows, table.NewRow(table.RowData{
-			"Username":       user.Username,
-			"Fullname":       user.Name,
-			"UID":            user.Uid,
-			"GID":            user.Gid,
-			"Home directory": user.HomeDir,
-		}))
+	columns := []table.Column{
+		{Title: "Username", Width: 16},
+		{Title: "Fullname", Width: 20},
+		{Title: "UID", Width: 10},
+		{Title: "GID", Width: 10},
+		{Title: "Home directory", Width: 25},
 	}
 
-	userTable := table.New([]table.Column{
-		table.NewColumn("Username", "Username", 16),
-		table.NewColumn("Fullname", "Fullname", 20),
-		table.NewColumn("UID", "UID", 10),
-		table.NewColumn("GID", "GID", 10),
-		table.NewColumn("Home directory", "Home directory", 25),
-	}).WithRows(rows).
-		BorderRounded().
-		WithBaseStyle(common.TableMainStyle).
-		HeaderStyle(common.TableHeaderStyle)
+	rows := []table.Row{}
+	for _, u := range users {
+		if u == nil {
+			return "No users in this group"
+		}
+		rows = append(rows, table.Row{u.Username, u.Name, u.Uid, u.Gid, u.HomeDir})
+	}
 
-	return userTable.View()
+	t := table.New(
+		table.WithColumns(columns),
+		table.WithRows(rows),
+		table.WithHeight(len(rows)+1),
+	)
+	s := table.DefaultStyles()
+	s.Header = common.TableHeaderStyle
+	s.Cell = common.TableMainStyle
+	t.SetStyles(s)
+
+	return t.View()
 }

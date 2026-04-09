@@ -1,3 +1,4 @@
+// Package main is the entry point for the ugm TUI application.
 package main
 
 import (
@@ -5,8 +6,8 @@ import (
 	"os"
 	"runtime"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/ariasmn/ugm/internal/tui"
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 var supportedOS = map[string]bool{
@@ -22,9 +23,14 @@ func main() {
 		os.Exit(0)
 	}
 
-	p := tea.NewProgram(tui.InitialModel(), tea.WithAltScreen())
+	if os.Geteuid() != 0 {
+		fmt.Println("ugm must be run as root. Use: sudo ugm")
+		os.Exit(1)
+	}
 
-	if err := p.Start(); err != nil {
+	p := tea.NewProgram(tui.InitialModel())
+
+	if _, err := p.Run(); err != nil {
 		fmt.Printf("Alas, there's been an error: %v", err)
 		os.Exit(1)
 	}

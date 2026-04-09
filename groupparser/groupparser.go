@@ -1,6 +1,7 @@
 //go:build linux || freebsd || openbsd || netbsd
 // +build linux freebsd openbsd netbsd
 
+// Package groupparser parses /etc/group to extract system group information.
 package groupparser
 
 import (
@@ -12,6 +13,7 @@ import (
 	"strings"
 )
 
+// Group represents a parsed system group with its member users.
 type Group struct {
 	Details user.Group
 	Users   []*user.User
@@ -19,6 +21,7 @@ type Group struct {
 
 var parsedGroups []Group
 
+// GetGroups returns the list of parsed groups, parsing /etc/group if needed.
 func GetGroups() (groups []Group) {
 	if len(parsedGroups) == 0 {
 		ParseGroups("/etc/group")
@@ -27,6 +30,7 @@ func GetGroups() (groups []Group) {
 	return parsedGroups
 }
 
+// ParseGroups reads and parses groups from the given group-format file.
 func ParseGroups(path string) {
 	parsedGroups = nil
 
@@ -35,17 +39,17 @@ func ParseGroups(path string) {
 		log.Fatal(err)
 	}
 
-	defer f.Close()
-
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		group, err := parseLine(scanner.Text())
 		if err != nil {
+			_ = f.Close()
 			log.Fatal(err)
 		}
 
 		parsedGroups = append(parsedGroups, group)
 	}
+	_ = f.Close()
 }
 
 func parseLine(line string) (Group, error) {
@@ -65,7 +69,7 @@ func parseLine(line string) (Group, error) {
 
 func parseUsers(groupUsernames string) []*user.User {
 	usernames := strings.Split(groupUsernames, ",")
-	users := []*user.User{}
+	users := make([]*user.User, 0, len(usernames))
 
 	for _, username := range usernames {
 		foundUser, _ := user.Lookup(username)

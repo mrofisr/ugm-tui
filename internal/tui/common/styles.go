@@ -1,7 +1,9 @@
+// Package common provides shared styles and utilities for the TUI.
 package common
 
-import "github.com/charmbracelet/lipgloss"
+import "charm.land/lipgloss/v2"
 
+// Styles used across the TUI components.
 var (
 	ListStyle = lipgloss.NewStyle().
 			Width(35).
@@ -19,7 +21,7 @@ var (
 	DetailStyle = lipgloss.NewStyle().
 			PaddingTop(2)
 	DividerStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#9B9B9B", Dark: "#5C5C5C"}).
+			Foreground(lipgloss.Color("#5C5C5C")).
 			PaddingTop(1).
 			PaddingBottom(1)
 	TableMainStyle = lipgloss.NewStyle().
@@ -33,4 +35,12 @@ var (
 			Bold(true).
 			Underline(true).
 			Inline(true)
+
+	SuccessStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#73c991"))
+	ErrorStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#f44747"))
+	PromptStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#dcdcaa")).
+			Bold(true)
 )

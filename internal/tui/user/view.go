@@ -5,12 +5,12 @@ import (
 	"os/user"
 	"strings"
 
+	"charm.land/bubbles/v2/table"
+	"charm.land/lipgloss/v2"
 	"github.com/ariasmn/ugm/internal/tui/common"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/evertras/bubble-table/table"
-	"github.com/muesli/reflow/wordwrap"
 )
 
+// View renders the user list and detail panel.
 func (bu BubbleUser) View() string {
 	bu.viewport.SetContent(bu.detailView())
 
@@ -20,15 +20,14 @@ func (bu BubbleUser) View() string {
 
 func (bu BubbleUser) listView() string {
 	bu.list.Styles.Title = common.ListColorStyle
-	bu.list.Styles.FilterPrompt.Foreground(common.ListColorStyle.GetBackground())
-	bu.list.Styles.FilterCursor.Foreground(common.ListColorStyle.GetBackground())
 
 	return common.ListStyle.Render(bu.list.View())
 }
 
 func (bu BubbleUser) detailView() string {
 	builder := &strings.Builder{}
-	divider := common.DividerStyle.Render(strings.Repeat("-", bu.viewport.Width)) + "\n"
+	vpWidth := bu.viewport.Width()
+	divider := common.DividerStyle.Render(strings.Repeat("-", vpWidth)) + "\n"
 	detailsHeader := common.HeaderStyle.Render("Details")
 	memberOfHeader := common.HeaderStyle.Render("Member of")
 
@@ -37,39 +36,45 @@ func (bu BubbleUser) detailView() string {
 		builder.WriteString(renderUserDetails(it.(item).Details))
 		builder.WriteString(divider)
 		builder.WriteString(memberOfHeader)
-		builder.WriteString(fmt.Sprintf("\n\n%s", renderGroupTable(it.(item).Groups)))
+		fmt.Fprintf(builder, "\n\n%s", renderGroupTable(it.(item).Groups))
 	}
-	details := wordwrap.String(builder.String(), bu.viewport.Width)
+	details := common.WordWrap(builder.String(), vpWidth)
 
 	return common.DetailStyle.Render(details)
 }
 
-func renderUserDetails(user user.User) string {
-	username := fmt.Sprintf("\n\nUsername: %s\n", user.Username)
-	fullname := fmt.Sprintf("Fullname: %s\n", user.Name)
-	identificators := fmt.Sprintf("UID: %s\nGID: %s\n", user.Uid, user.Gid)
-	homeDirectory := fmt.Sprintf("Home directory: %s\n", user.HomeDir)
+func renderUserDetails(u user.User) string {
+	username := fmt.Sprintf("\n\nUsername: %s\n", u.Username)
+	fullname := fmt.Sprintf("Fullname: %s\n", u.Name)
+	identificators := fmt.Sprintf("UID: %s\nGID: %s\n", u.Uid, u.Gid)
+	homeDirectory := fmt.Sprintf("Home directory: %s\n", u.HomeDir)
 
 	return username + fullname + identificators + homeDirectory
 }
 
 func renderGroupTable(groups []*user.Group) string {
-	rows := []table.Row{}
-
-	for _, group := range groups {
-		rows = append(rows, table.NewRow(table.RowData{
-			"GID":  group.Gid,
-			"Name": group.Name,
-		}))
+	columns := []table.Column{
+		{Title: "GID", Width: 10},
+		{Title: "Name", Width: 16},
 	}
 
-	groupsTable := table.New([]table.Column{
-		table.NewColumn("GID", "GID", 10),
-		table.NewColumn("Name", "Name", 16),
-	}).WithRows(rows).
-		BorderRounded().
-		WithBaseStyle(common.TableMainStyle).
-		HeaderStyle(common.TableHeaderStyle)
+	rows := []table.Row{}
+	for _, group := range groups {
+		if group == nil {
+			continue
+		}
+		rows = append(rows, table.Row{group.Gid, group.Name})
+	}
 
-	return groupsTable.View()
+	t := table.New(
+		table.WithColumns(columns),
+		table.WithRows(rows),
+		table.WithHeight(len(rows)+1),
+	)
+	s := table.DefaultStyles()
+	s.Header = common.TableHeaderStyle
+	s.Cell = common.TableMainStyle
+	t.SetStyles(s)
+
+	return t.View()
 }

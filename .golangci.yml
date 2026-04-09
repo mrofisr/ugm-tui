@@ -1,0 +1,37 @@
+version: "2"
+
+formatters:
+  enable:
+    - gofumpt
+
+linters:
+  enable:
+    - govet
+    - errcheck
+    - staticcheck
+    - unused
+    - ineffassign
+    - misspell
+    - revive
+    - gocritic
+    - bodyclose
+    - nilerr
+    - prealloc
+
+linters-settings:
+  revive:
+    rules:
+      - name: blank-imports
+      - name: exported
+      - name: unreachable-code
+      - name: unused-parameter
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+
+issues:
+  exclude-dirs:
+    - vendor
+  max-issues-per-linter: 50
+  max-same-issues: 5

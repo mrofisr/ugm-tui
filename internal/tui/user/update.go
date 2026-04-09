@@ -1,20 +1,20 @@
 package user
 
 import (
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/ariasmn/ugm/internal/tui/common"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
+// Update handles messages for the user view.
 func (bu BubbleUser) Update(msg tea.Msg) (BubbleUser, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
+	if msg, ok := msg.(tea.WindowSizeMsg); ok {
 		horizontal, vertical := common.ListStyle.GetFrameSize()
 		paginatorHeight := lipgloss.Height(bu.list.Paginator.View())
 
 		bu.list.SetSize(msg.Width-horizontal, msg.Height-vertical-paginatorHeight)
-		bu.viewport = viewport.New(msg.Width, msg.Height)
+		bu.viewport = viewport.New(viewport.WithWidth(msg.Width), viewport.WithHeight(msg.Height))
 		bu.viewport.SetContent(bu.detailView())
 	}
 

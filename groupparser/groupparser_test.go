@@ -16,17 +16,17 @@ mock:x:65537:
 
 func TestGetGroups(t *testing.T) {
 	tempDir, _ := os.CreateTemp("", "group")
-	err := os.WriteFile(tempDir.Name(), []byte(mockGroup), 0644)
+	err := os.WriteFile(tempDir.Name(), []byte(mockGroup), 0o644)
 	if err != nil {
 		t.Fatalf("Should not have failed: %s", err)
 	}
-	defer os.Remove(tempDir.Name())
+	defer func() { _ = os.Remove(tempDir.Name()) }()
 
 	ParseGroups(tempDir.Name())
 	got := GetGroups()
 	want := getWanted()
 
-	for groupIndex, _ := range got {
+	for groupIndex := range got {
 		if got[groupIndex].Details.Gid != want[groupIndex].Details.Gid {
 			t.Errorf("Got GID %s, wanted %s", got[groupIndex].Details.Gid, want[groupIndex].Details.Gid)
 		}

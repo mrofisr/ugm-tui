@@ -16,17 +16,17 @@ mock:x:1:65537:mock:/mock:/sbin/mock
 
 func TestGetUsers(t *testing.T) {
 	tempDir, _ := os.CreateTemp("", "passwd")
-	err := os.WriteFile(tempDir.Name(), []byte(mockPwd), 0644)
+	err := os.WriteFile(tempDir.Name(), []byte(mockPwd), 0o644)
 	if err != nil {
 		t.Fatalf("Should not have failed: %s", err)
 	}
-	defer os.Remove(tempDir.Name())
+	defer func() { _ = os.Remove(tempDir.Name()) }()
 
 	ParseUsers(tempDir.Name()) // We parse the temp file before getting the users
 	got := GetUsers()
 	want := getWanted()
 
-	for userIndex, _ := range got {
+	for userIndex := range got {
 		if got[userIndex].Details.Uid != want[userIndex].Details.Uid {
 			t.Errorf("Got UID %s, wanted %s", got[userIndex].Details.Uid, want[userIndex].Details.Uid)
 		}

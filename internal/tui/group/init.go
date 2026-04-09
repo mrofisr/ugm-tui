@@ -1,7 +1,8 @@
 package group
 
-import tea "github.com/charmbracelet/bubbletea"
+import tea "charm.land/bubbletea/v2"
 
+// Init implements tea.Model.
 func (bg BubbleGroup) Init() tea.Cmd {
 	return nil
 }
