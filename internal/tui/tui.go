@@ -1,32 +1,50 @@
-// Package tui provides the root TUI application model.
 package tui
 
 import (
+	"log"
+
 	tea "charm.land/bubbletea/v2"
-	"github.com/ariasmn/ugm/internal/tui/group"
-	"github.com/ariasmn/ugm/internal/tui/manage"
-	"github.com/ariasmn/ugm/internal/tui/user"
+
+	"github.com/mrofisr/ugm-tui/internal/group"
+	"github.com/mrofisr/ugm-tui/internal/passwd"
 )
 
 type state int
 
 const (
-	showUserView state = iota
-	showGroupView
-	showManageView
+	_stateUser state = iota
+	_stateGroup
+	_stateManage
 )
 
 type model struct {
 	state         state
-	bu            user.BubbleUser
-	bg            group.BubbleGroup
-	bm            manage.BubbleManage
+	users         UserView
+	groups        GroupView
+	manage        ManageView
 	width, height int
 }
 
-func (m model) Init() tea.Cmd {
-	return nil
+// New creates the root TUI model.
+func New() tea.Model {
+	users, err := passwd.Load()
+	if err != nil {
+		log.Fatalf("load users: %v", err)
+	}
+	groups, err := group.Load()
+	if err != nil {
+		log.Fatalf("load groups: %v", err)
+	}
+
+	return model{
+		state:  _stateUser,
+		users:  newUserView(users),
+		groups: newGroupView(groups),
+		manage: newManageView(),
+	}
 }
+
+func (m model) Init() tea.Cmd { return nil }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
@@ -39,17 +57,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
-		if m.state != showManageView {
+		if m.state != _stateManage {
 			switch msg.String() {
 			case "tab":
-				return updateByState(m)
+				return m.switchView()
 			case "q":
 				return m, tea.Quit
 			case "m":
-				if m.state == showUserView {
-					if u := m.bu.SelectedUsername(); u != "" {
-						m.bm.SetTarget(u)
-						m.state = showManageView
+				if m.state == _stateUser {
+					if u := m.users.selectedUsername(); u != "" {
+						m.manage.setTarget(u)
+						m.state = _stateManage
 						return m, nil
 					}
 				}
@@ -58,16 +76,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch m.state {
-	case showUserView:
-		m.bu, cmd = m.bu.Update(msg)
-	case showGroupView:
-		m.bg, cmd = m.bg.Update(msg)
-	case showManageView:
-		m.bm, cmd = m.bm.Update(msg)
-		if m.bm.IsDone() {
-			m.bu.RefreshUsers()
-			m.state = showUserView
-			m.bu, cmd = m.bu.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
+	case _stateUser:
+		m.users, cmd = m.users.update(msg)
+	case _stateGroup:
+		m.groups, cmd = m.groups.update(msg)
+	case _stateManage:
+		m.manage, cmd = m.manage.update(msg)
+		if m.manage.done {
+			users, _ := passwd.Load()
+			m.users.refresh(users)
+			m.state = _stateUser
+			m.users, cmd = m.users.update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
 		}
 	}
 
@@ -77,42 +96,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) View() tea.View {
 	var content string
 	switch m.state {
-	case showGroupView:
-		content = m.bg.View()
-	case showManageView:
-		content = m.bm.View()
+	case _stateGroup:
+		content = m.groups.view()
+	case _stateManage:
+		content = m.manage.view()
 	default:
-		content = m.bu.View()
+		content = m.users.view()
 	}
 	v := tea.NewView(content)
 	v.AltScreen = true
 	return v
 }
 
-// InitialModel creates the root TUI model.
-func InitialModel() tea.Model {
-	return model{
-		state: showUserView,
-		bu:    user.InitialModel(),
-		bg:    group.InitialModel(),
-		bm:    manage.InitialModel(),
-	}
-}
-
-func updateByState(m model) (model, tea.Cmd) {
+func (m model) switchView() (model, tea.Cmd) {
 	var cmd tea.Cmd
-	windowSizeMsg := tea.WindowSizeMsg{
-		Width:  m.width,
-		Height: m.height,
-	}
+	sz := tea.WindowSizeMsg{Width: m.width, Height: m.height}
 
-	if m.state == showUserView {
-		m.state = showGroupView
-		m.bg, cmd = m.bg.Update(windowSizeMsg)
+	if m.state == _stateUser {
+		m.state = _stateGroup
+		m.groups, cmd = m.groups.update(sz)
 	} else {
-		m.state = showUserView
-		m.bu, cmd = m.bu.Update(windowSizeMsg)
+		m.state = _stateUser
+		m.users, cmd = m.users.update(sz)
 	}
-
 	return m, cmd
 }

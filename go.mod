@@ -1,4 +1,4 @@
-module github.com/ariasmn/ugm
+module github.com/mrofisr/ugm-tui
 
 go 1.25.0
 

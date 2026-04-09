@@ -7,8 +7,8 @@ Thanks for your interest in contributing! Here's how to get started.
 1. Fork the repository
 2. Clone your fork:
    ```sh
-   git clone https://github.com/<your-username>/ugm.git
-   cd ugm
+   git clone https://github.com/<your-username>/ugm-tui.git
+   cd ugm-tui
    ```
 3. Install development tools:
    ```sh
@@ -24,6 +24,8 @@ Thanks for your interest in contributing! Here's how to get started.
 make build
 ```
 
+The binary is built from `cmd/ugm/main.go` and output as `./ugm`.
+
 ### Format & Lint
 
 All code must pass formatting and linting before submission:
@@ -35,6 +37,8 @@ make fix     # auto-fix lint issues
 make all     # fmt + fix + build
 ```
 
+`make build` depends on `make lint` — the build will fail if linting doesn't pass.
+
 ### Run Tests
 
 ```sh
@@ -42,6 +46,17 @@ go test ./...
 ```
 
 Note: some tests require root privileges since they interact with `/etc/passwd` and `/etc/group`.
+
+## Code Style
+
+This project follows the [Google Go Style Guide](https://google.github.io/styleguide/go/):
+
+- Entry point in `cmd/ugm/`; all packages under `internal/`
+- Return errors from functions — no `log.Fatal` in library code
+- No global mutable state — data is passed, not cached in package vars
+- Unexported package-level vars/consts prefixed with `_` (e.g. `_defaultShell`)
+- Import grouping: stdlib → external → internal (separated by blank lines)
+- Doc comments on all exported types and functions
 
 ## Submitting Changes
 
@@ -72,16 +87,18 @@ Note: some tests require root privileges since they interact with `/etc/passwd` 
 
 ```
 .
-├── main.go                  # Entry point, root check, OS check
-├── userparser/              # Parses /etc/passwd
-├── groupparser/             # Parses /etc/group
-├── usermgmt/                # User management (create, lock, expiry, SSH keys)
-└── internal/tui/
-    ├── tui.go               # Root TUI model, state management
-    ├── common/              # Shared styles and utilities
-    ├── user/                # User list view
-    ├── group/               # Group list view
-    └── manage/              # Management actions (create, lock, expiry)
+├── cmd/ugm/main.go          # Entry point, root check, OS check
+└── internal/
+    ├── passwd/              # Parses /etc/passwd
+    ├── group/               # Parses /etc/group
+    ├── usermgmt/            # User management (create, delete, lock, unlock,
+    │                        #   expiry, groups, SSH keys, password aging)
+    └── tui/
+        ├── tui.go           # Root model, state management
+        ├── style.go         # Shared styles
+        ├── userview.go      # User list view
+        ├── groupview.go     # Group list view
+        └── manageview.go    # Management actions
 ```
 
 ## Reporting Bugs

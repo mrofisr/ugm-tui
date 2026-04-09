@@ -10,6 +10,6 @@ fix:
 	golangci-lint run --fix ./...
 
 build: lint
-	go build -o ugm .
+	go build -o ugm ./cmd/ugm
 
 all: fmt fix build

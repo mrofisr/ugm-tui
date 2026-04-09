@@ -1,9 +1,9 @@
-package common
+package tui
 
 import "strings"
 
-// WordWrap wraps text at the given width, breaking on spaces.
-func WordWrap(s string, width int) string {
+// wordWrap wraps text at the given width, breaking on spaces.
+func wordWrap(s string, width int) string {
 	if width <= 0 {
 		return s
 	}

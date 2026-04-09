@@ -23,6 +23,7 @@ What you expected to happen.
 - OS: [e.g. Ubuntu 24.04, FreeBSD 14]
 - Go version: [e.g. 1.26]
 - ugm version: [e.g. v1.2.0]
+- Terminal: [e.g. xterm-256color, alacritty, tmux]
 
 **Additional context**
 Any other context, screenshots, or terminal output.
