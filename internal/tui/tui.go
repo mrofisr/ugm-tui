@@ -5,6 +5,7 @@ import (
 	"log"
 	"os/exec"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -24,6 +25,9 @@ const (
 
 var _sidebarTabs = []string{"users", "groups", "audit"}
 
+// flashMsg is sent after a timer to clear the flash message.
+type flashMsg struct{}
+
 type model struct {
 	sidebar       sidebarTab
 	users         UserView
@@ -32,6 +36,8 @@ type model struct {
 	auditContent  string
 	showHelp      bool
 	width, height int
+	flash         string
+	flashIsError  bool
 }
 
 // New creates the root TUI model.
@@ -55,10 +61,20 @@ func New() tea.Model {
 
 func (m model) Init() tea.Cmd { return nil }
 
+// setFlash sets a flash message that auto-clears after 3 seconds.
+func (m *model) setFlash(msg string, isError bool) tea.Cmd {
+	m.flash = msg
+	m.flashIsError = isError
+	return tea.Tick(3*time.Second, func(time.Time) tea.Msg { return flashMsg{} })
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
+	case flashMsg:
+		m.flash = ""
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -105,6 +121,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case _sidebarManage:
 		m.manage, cmd = m.manage.update(msg)
 		if m.manage.done {
+			// Propagate flash from manage view
+			if m.manage.status != "" {
+				flashCmd := m.setFlash(m.manage.status, m.manage.statusIsError)
+				users, _ := passwd.Load()
+				m.users.refresh(users)
+				m.sidebar = _sidebarUsers
+				m.users, cmd = m.users.update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
+				return m, tea.Batch(cmd, flashCmd)
+			}
 			users, _ := passwd.Load()
 			m.users.refresh(users)
 			m.sidebar = _sidebarUsers
@@ -118,13 +143,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) View() tea.View {
 	var content string
 
+	// Header bar always visible (k9s-style)
+	headerBar := renderHeaderBar(m.width)
+
 	switch {
 	case m.showHelp:
 		content = m.renderHelp()
 	case m.sidebar == _sidebarManage:
-		content = lipgloss.JoinVertical(lipgloss.Left, m.manage.view(), m.statusBar())
+		breadcrumb := renderBreadcrumb("users", m.manage.targetUser, "manage")
+		content = lipgloss.JoinVertical(lipgloss.Left, headerBar, breadcrumb, m.manage.view(), m.statusBar())
 	default:
-		// Sidebar tab bar
 		sidebarTabBar := renderTabBar(_sidebarTabs, int(m.sidebar))
 
 		var body string
@@ -137,7 +165,7 @@ func (m model) View() tea.View {
 			body = m.users.view()
 		}
 
-		content = lipgloss.JoinVertical(lipgloss.Left, sidebarTabBar, body, m.statusBar())
+		content = lipgloss.JoinVertical(lipgloss.Left, headerBar, sidebarTabBar, body, m.statusBar())
 	}
 
 	v := tea.NewView(content)
@@ -180,6 +208,15 @@ func (m model) statusBar() string {
 		left = " audit log"
 	case _sidebarManage:
 		left = fmt.Sprintf(" managing: %s", m.manage.targetUser)
+	}
+
+	// Show flash message in status bar if present
+	if m.flash != "" {
+		if m.flashIsError {
+			left = " " + _flashErrorStyle.Render(m.flash)
+		} else {
+			left = " " + _flashSuccessStyle.Render(m.flash)
+		}
 	}
 
 	keys := []struct{ key, desc string }{

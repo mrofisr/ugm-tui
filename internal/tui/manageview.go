@@ -30,28 +30,36 @@ const (
 
 // ManageView provides user management actions.
 type ManageView struct {
-	action     manageAction
-	menuIndex  int
-	inputs     []textinput.Model
-	focusIdx   int
-	authIsSSH  bool
-	targetUser string
-	status     string
-	infoText   string
-	done       bool
+	action        manageAction
+	menuIndex     int
+	inputs        []textinput.Model
+	focusIdx      int
+	authIsSSH     bool
+	targetUser    string
+	status        string
+	statusIsError bool
+	infoText      string
+	done          bool
 }
 
-var _menuItems = []string{
-	"Create New User",
-	"Delete User",
-	"Lock User (revoke access)",
-	"Unlock User",
-	"Set Expiry Date",
-	"Add to Group (assign role)",
-	"Remove from Group",
-	"View Password Aging Info",
-	"Create Group (new role)",
-	"Delete Group",
+// menuEntry represents a single menu item with icon and category.
+type menuEntry struct {
+	icon     string
+	label    string
+	category string // empty = same category as previous
+}
+
+var _menuEntries = []menuEntry{
+	{icon: "👤", label: "Create New User", category: "Account"},
+	{icon: "🗑", label: "Delete User"},
+	{icon: "🔒", label: "Lock User (revoke access)", category: "Access"},
+	{icon: "🔓", label: "Unlock User"},
+	{icon: "📅", label: "Set Expiry Date"},
+	{icon: "📋", label: "View Password Aging Info"},
+	{icon: "➕", label: "Add to Group (assign role)", category: "Groups"},
+	{icon: "➖", label: "Remove from Group"},
+	{icon: "📁", label: "Create Group (new role)"},
+	{icon: "🗑", label: "Delete Group"},
 }
 
 func newManageView() ManageView {
@@ -63,6 +71,7 @@ func (v *ManageView) setTarget(username string) {
 	v.action = _actionMenu
 	v.menuIndex = 0
 	v.status = ""
+	v.statusIsError = false
 	v.infoText = ""
 	v.done = false
 }
@@ -163,7 +172,7 @@ func (v ManageView) updateMenu(msg tea.Msg) (ManageView, tea.Cmd) {
 				v.menuIndex--
 			}
 		case "down", "j":
-			if v.menuIndex < len(_menuItems)-1 {
+			if v.menuIndex < len(_menuEntries)-1 {
 				v.menuIndex++
 			}
 		case "enter":
@@ -183,12 +192,6 @@ func (v ManageView) updateMenu(msg tea.Msg) (ManageView, tea.Cmd) {
 				v.action = _actionExpiry
 				v.initExpiryInput()
 			case 5:
-				v.action = _actionAddGroup
-				v.initGroupInput()
-			case 6:
-				v.action = _actionRemoveGroup
-				v.initGroupInput()
-			case 7:
 				v.action = _actionPasswdAging
 				info, err := usermgmt.PasswordAging(v.targetUser)
 				if err != nil {
@@ -197,6 +200,12 @@ func (v ManageView) updateMenu(msg tea.Msg) (ManageView, tea.Cmd) {
 				} else {
 					v.infoText = info
 				}
+			case 6:
+				v.action = _actionAddGroup
+				v.initGroupInput()
+			case 7:
+				v.action = _actionRemoveGroup
+				v.initGroupInput()
 			case 8:
 				v.action = _actionCreateGroup
 				v.initSingleInput("e.g. devops, docker, deploy")
@@ -212,15 +221,23 @@ func (v ManageView) updateMenu(msg tea.Msg) (ManageView, tea.Cmd) {
 func (v ManageView) viewMenu() string {
 	title := _headerStyle.Render(fmt.Sprintf("Manage User: %s", v.targetUser))
 	var b strings.Builder
-	b.WriteString(title + "\n\n")
-	for i, item := range _menuItems {
+	b.WriteString(title + "\n")
+
+	lastCategory := ""
+	for i, entry := range _menuEntries {
+		// Render category header
+		if entry.category != "" && entry.category != lastCategory {
+			b.WriteString("\n" + _menuCategoryStyle.Render("  "+entry.category) + "\n")
+			lastCategory = entry.category
+		}
+
 		cursor := "  "
 		style := _listItemStyle
 		if i == v.menuIndex {
-			cursor = "> "
+			cursor = "▶ "
 			style = _listSelectedStyle
 		}
-		b.WriteString(style.Render(cursor+item) + "\n")
+		b.WriteString(style.Render(cursor+entry.icon+" "+entry.label) + "\n")
 	}
 	b.WriteString("\n" + _dividerStyle.Render("↑/↓ navigate • enter select • esc back"))
 	return b.String()
@@ -234,8 +251,10 @@ func (v ManageView) updateConfirm(msg tea.Msg, verb, cmdPreview string, fn func(
 		case "y":
 			if err := fn(); err != nil {
 				v.status = _errorStyle.Render(fmt.Sprintf("%s failed: %s", verb, err))
+				v.statusIsError = true
 			} else {
 				v.status = _successStyle.Render(fmt.Sprintf("User '%s' %sed!", v.targetUser, verb))
+				v.statusIsError = false
 				audit.Log(verb, v.targetUser, cmdPreview)
 			}
 			v.action = _actionMenu
@@ -247,7 +266,9 @@ func (v ManageView) updateConfirm(msg tea.Msg, verb, cmdPreview string, fn func(
 }
 
 func (v ManageView) viewConfirmPrompt(title, prompt, cmdPreview string) string {
-	return fmt.Sprintf("%s\n\n%s\n\n%s\n\n%s",
+	bc := renderBreadcrumb("users", v.targetUser, "manage", title)
+	return fmt.Sprintf("%s\n%s\n%s\n\n%s\n\n%s",
+		bc,
 		_headerStyle.Render(title),
 		_promptStyle.Render(prompt),
 		_previewStyle.Render("$ "+cmdPreview),
@@ -319,10 +340,12 @@ func (v ManageView) submitCreate() (ManageView, tea.Cmd) {
 
 	if username == "" {
 		v.status = _errorStyle.Render("Username is required")
+		v.statusIsError = true
 		return v, nil
 	}
 	if err := usermgmt.CreateUser(username, shell); err != nil {
 		v.status = _errorStyle.Render("Create failed: " + err.Error())
+		v.statusIsError = true
 		return v, nil
 	}
 	audit.Log("create-user", username, fmt.Sprintf("useradd -m -s %s %s", shell, username))
@@ -342,16 +365,19 @@ func (v ManageView) submitCreate() (ManageView, tea.Cmd) {
 		}
 		if err != nil {
 			v.status = _errorStyle.Render("Auth setup failed: " + err.Error())
+			v.statusIsError = true
 			return v, nil
 		}
 	}
 	v.status = _successStyle.Render(fmt.Sprintf("User '%s' created successfully!", username))
+	v.statusIsError = false
 	v.action = _actionMenu
 	return v, nil
 }
 
 func (v ManageView) viewCreate() string {
 	title := _headerStyle.Render("Create New User")
+	bc := renderBreadcrumb("users", v.targetUser, "manage", "Create New User")
 	authLabel := "Auth: [Password]"
 	if v.authIsSSH {
 		authLabel = "Auth: [SSH Key]"
@@ -369,11 +395,11 @@ func (v ManageView) viewCreate() string {
 
 	labels := []string{"Username", "Shell", authLabel, "Secret"}
 	var b strings.Builder
-	b.WriteString(title + "\n\n")
+	b.WriteString(bc + title + "\n\n")
 	for i, input := range v.inputs {
 		cursor := "  "
 		if i == v.focusIdx {
-			cursor = "> "
+			cursor = "▶ "
 		}
 		fmt.Fprintf(&b, "%s%s: %s\n", cursor, labels[i], input.View())
 	}
@@ -398,13 +424,16 @@ func (v ManageView) updateExpiry(msg tea.Msg) (ManageView, tea.Cmd) {
 			date := v.inputs[0].Value()
 			if date == "" {
 				v.status = _errorStyle.Render("Date is required (YYYY-MM-DD)")
+				v.statusIsError = true
 				return v, nil
 			}
 			cmd := fmt.Sprintf("chage --expiredate %s %s", date, v.targetUser)
 			if err := usermgmt.SetExpiry(v.targetUser, date); err != nil {
 				v.status = _errorStyle.Render("Set expiry failed: " + err.Error())
+				v.statusIsError = true
 			} else {
 				v.status = _successStyle.Render(fmt.Sprintf("Expiry for '%s' set to %s", v.targetUser, date))
+				v.statusIsError = false
 				audit.Log("set-expiry", v.targetUser, cmd)
 			}
 			v.action = _actionMenu
@@ -418,12 +447,14 @@ func (v ManageView) updateExpiry(msg tea.Msg) (ManageView, tea.Cmd) {
 }
 
 func (v ManageView) viewExpiry() string {
+	bc := renderBreadcrumb("users", v.targetUser, "manage", "Set Expiry Date")
 	date := v.inputs[0].Value()
 	if date == "" {
 		date = "YYYY-MM-DD"
 	}
 	preview := fmt.Sprintf("chage --expiredate %s %s", date, v.targetUser)
-	return fmt.Sprintf("%s\n\n  User: %s\n  Date: %s\n\n%s\n\n%s",
+	return fmt.Sprintf("%s%s\n\n  User: %s\n  Date: %s\n\n%s\n\n%s",
+		bc,
 		_headerStyle.Render("Set Expiry Date"),
 		_promptStyle.Render(v.targetUser),
 		v.inputs[0].View(),
@@ -448,12 +479,15 @@ func (v ManageView) updateGroupInput(msg tea.Msg, verb string, fn func(string, s
 			grp := v.inputs[0].Value()
 			if grp == "" {
 				v.status = _errorStyle.Render("Group name is required")
+				v.statusIsError = true
 				return v, nil
 			}
 			if err := fn(v.targetUser, grp); err != nil {
 				v.status = _errorStyle.Render(fmt.Sprintf("%s group failed: %s", verb, err))
+				v.statusIsError = true
 			} else {
 				v.status = _successStyle.Render(fmt.Sprintf("User '%s' %sed group '%s'", v.targetUser, verb, grp))
+				v.statusIsError = false
 				audit.Log(verb+"-group", v.targetUser, "group="+grp)
 			}
 			v.action = _actionMenu
@@ -467,6 +501,7 @@ func (v ManageView) updateGroupInput(msg tea.Msg, verb string, fn func(string, s
 }
 
 func (v ManageView) viewGroupInput(title string) string {
+	bc := renderBreadcrumb("users", v.targetUser, "manage", title)
 	grp := v.inputs[0].Value()
 	var preview string
 	if title == "Add to Group" {
@@ -480,7 +515,8 @@ func (v ManageView) viewGroupInput(title string) string {
 		}
 		preview = fmt.Sprintf("gpasswd -d %s %s", v.targetUser, grp)
 	}
-	return fmt.Sprintf("%s\n\n  User: %s\n  Group: %s\n\n%s\n\n%s",
+	return fmt.Sprintf("%s%s\n\n  User: %s\n  Group: %s\n\n%s\n\n%s",
+		bc,
 		_headerStyle.Render(title),
 		_promptStyle.Render(v.targetUser),
 		v.inputs[0].View(),
@@ -505,12 +541,15 @@ func (v ManageView) updateSingleInput(msg tea.Msg, verb string, fn func(string) 
 			val := v.inputs[0].Value()
 			if val == "" {
 				v.status = _errorStyle.Render("Value is required")
+				v.statusIsError = true
 				return v, nil
 			}
 			if err := fn(val); err != nil {
 				v.status = _errorStyle.Render(fmt.Sprintf("%s failed: %s", verb, err))
+				v.statusIsError = true
 			} else {
 				v.status = _successStyle.Render(fmt.Sprintf("'%s' %sd!", val, verb))
+				v.statusIsError = false
 				audit.Log(verb, val, "")
 			}
 			v.action = _actionMenu
@@ -524,6 +563,7 @@ func (v ManageView) updateSingleInput(msg tea.Msg, verb string, fn func(string) 
 }
 
 func (v ManageView) viewSingleInput(title, label string) string {
+	bc := renderBreadcrumb("users", v.targetUser, "manage", title)
 	val := v.inputs[0].Value()
 	var preview string
 	if title == "Create Group" {
@@ -537,7 +577,8 @@ func (v ManageView) viewSingleInput(title, label string) string {
 		}
 		preview = "groupdel " + val
 	}
-	return fmt.Sprintf("%s\n\n  %s: %s\n\n%s\n\n%s",
+	return fmt.Sprintf("%s%s\n\n  %s: %s\n\n%s\n\n%s",
+		bc,
 		_headerStyle.Render(title),
 		label,
 		v.inputs[0].View(),
@@ -549,7 +590,9 @@ func (v ManageView) viewSingleInput(title, label string) string {
 // --- Info view (read-only) ---
 
 func (v ManageView) viewInfo(title string) string {
-	return fmt.Sprintf("%s\n\n  User: %s\n\n%s\n\n%s",
+	bc := renderBreadcrumb("users", v.targetUser, "manage", title)
+	return fmt.Sprintf("%s%s\n\n  User: %s\n\n%s\n\n%s",
+		bc,
 		_headerStyle.Render(title),
 		_promptStyle.Render(v.targetUser),
 		v.infoText,

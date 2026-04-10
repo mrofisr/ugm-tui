@@ -152,10 +152,12 @@ func (v UserView) stats() (total, locked, expiring, sys int) {
 func (v UserView) update(msg tea.Msg) (UserView, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		lw := listWidth(msg.Width)
+		_listStyle = _listStyle.Width(lw)
 		h, vert := _listStyle.GetFrameSize()
 		ph := lipgloss.Height(v.list.Paginator.View())
-		v.list.SetSize(msg.Width-h, msg.Height-vert-ph-2) // -2 for tab bar + status bar
-		v.viewport = viewport.New(viewport.WithWidth(msg.Width-48), viewport.WithHeight(msg.Height-3))
+		v.list.SetSize(lw-h, msg.Height-vert-ph-4) // -4 for header bar + tab bar + status bar + padding
+		v.viewport = viewport.New(viewport.WithWidth(msg.Width-lw-4), viewport.WithHeight(msg.Height-5))
 		v.viewport.SetContent(v.detailContent())
 	case tea.KeyPressMsg:
 		switch msg.String() {

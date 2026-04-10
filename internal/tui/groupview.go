@@ -59,10 +59,12 @@ func newGroupView(groups []group.Group) GroupView {
 
 func (v GroupView) update(msg tea.Msg) (GroupView, tea.Cmd) {
 	if msg, ok := msg.(tea.WindowSizeMsg); ok {
+		lw := listWidth(msg.Width)
+		_listStyle = _listStyle.Width(lw)
 		h, vert := _listStyle.GetFrameSize()
 		ph := lipgloss.Height(v.list.Paginator.View())
-		v.list.SetSize(msg.Width-h, msg.Height-vert-ph)
-		v.viewport = viewport.New(viewport.WithWidth(msg.Width), viewport.WithHeight(msg.Height))
+		v.list.SetSize(lw-h, msg.Height-vert-ph-2)
+		v.viewport = viewport.New(viewport.WithWidth(msg.Width-lw-4), viewport.WithHeight(msg.Height-3))
 		v.viewport.SetContent(v.detailView())
 	}
 	var cmd tea.Cmd
