@@ -10,6 +10,6 @@ fix:
 	golangci-lint run --fix ./...
 
 build: lint
-	go build -o ugm ./cmd/ugm
+	go build -ldflags "-X main.version=$$(git describe --tags --always --dirty 2>/dev/null || echo dev)" -o ugm ./cmd/ugm
 
 all: fmt fix build

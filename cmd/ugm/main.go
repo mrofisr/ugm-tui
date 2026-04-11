@@ -11,6 +11,9 @@ import (
 	"github.com/mrofisr/ugm-tui/internal/tui"
 )
 
+// version is set via ldflags at build time (e.g. -ldflags "-X main.version=1.0.0").
+var version = "dev"
+
 var _supportedOS = map[string]bool{
 	"linux":   true,
 	"freebsd": true,
@@ -18,21 +21,43 @@ var _supportedOS = map[string]bool{
 	"netbsd":  true,
 }
 
+const _usage = `ugm — a terminal UI to view and manage UNIX users and groups
+
+Usage:
+  sudo ugm
+
+Flags:
+  -h, --help      Show this help message
+  -v, --version   Show version
+
+Documentation: https://github.com/mrofisr/ugm-tui`
+
 func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "-h", "--help", "help":
+			fmt.Println(_usage)
+			return
+		case "-v", "--version", "version":
+			fmt.Printf("ugm %s\n", version)
+			return
+		}
+	}
+
 	if !_supportedOS[runtime.GOOS] {
-		fmt.Println("Current OS not supported. Refer to the documentation for more information.")
-		os.Exit(0)
+		fmt.Fprintf(os.Stderr, "ugm: unsupported OS %q. Supported: linux, freebsd, openbsd, netbsd.\n", runtime.GOOS)
+		os.Exit(1)
 	}
 
 	if os.Geteuid() != 0 {
-		fmt.Println("ugm must be run as root. Use: sudo ugm")
+		fmt.Fprintln(os.Stderr, "ugm: must be run as root.\n\nUsage:\n  sudo ugm\n\nRun 'ugm --help' for more information.")
 		os.Exit(1)
 	}
 
 	p := tea.NewProgram(tui.New())
 
 	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "ugm: %v\n", err)
 		os.Exit(1)
 	}
 }
