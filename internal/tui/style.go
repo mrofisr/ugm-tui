@@ -19,20 +19,17 @@ const (
 
 // listWidth returns a responsive list panel width (roughly 1/3 of terminal, min 36, max 52).
 func listWidth(termWidth int) int {
-	w := termWidth / 3
-	if w < 36 {
-		w = 36
-	}
-	if w > 52 {
-		w = 52
-	}
-	return w
+	return max(36, min(52, termWidth/3))
+}
+
+// listStyle returns the list panel style at the given width.
+func listStyle(w int) lipgloss.Style {
+	return _listBaseStyle.Width(w)
 }
 
 // Styles used across the TUI views.
 var (
-	_listStyle = lipgloss.NewStyle().
-			Width(44).
+	_listBaseStyle = lipgloss.NewStyle().
 			PaddingRight(2).
 			MarginRight(1).
 			Border(lipgloss.RoundedBorder())
@@ -140,12 +137,12 @@ var (
 
 // renderTabBar renders a horizontal tab bar with the active tab highlighted.
 func renderTabBar(tabs []string, active int) string {
-	var parts []string
+	parts := make([]string, len(tabs))
 	for i, t := range tabs {
 		if i == active {
-			parts = append(parts, _tabActiveStyle.Render(t))
+			parts[i] = _tabActiveStyle.Render(t)
 		} else {
-			parts = append(parts, _tabInactiveStyle.Render(t))
+			parts[i] = _tabInactiveStyle.Render(t)
 		}
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Top, parts...) + "\n"
@@ -162,10 +159,7 @@ func renderHeaderBar(width int) string {
 	left := _headerBarStyle.Render("⚙ ugm")
 	info := _headerBarDimStyle.Render("host:" + hostname + "  operator:" + operator)
 
-	gap := width - lipgloss.Width(left) - lipgloss.Width(info)
-	if gap < 0 {
-		gap = 0
-	}
+	gap := max(0, width-lipgloss.Width(left)-lipgloss.Width(info))
 	fill := _headerBarDimStyle.Render(strings.Repeat(" ", gap))
 	return left + fill + info
 }
@@ -173,12 +167,12 @@ func renderHeaderBar(width int) string {
 // renderBreadcrumb renders a breadcrumb trail like: users › rafi › manage › Lock User
 func renderBreadcrumb(parts ...string) string {
 	sep := _breadcrumbStyle.Render(" › ")
-	var rendered []string
+	rendered := make([]string, len(parts))
 	for i, p := range parts {
 		if i == len(parts)-1 {
-			rendered = append(rendered, _breadcrumbActiveStyle.Render(p))
+			rendered[i] = _breadcrumbActiveStyle.Render(p)
 		} else {
-			rendered = append(rendered, _breadcrumbStyle.Render(p))
+			rendered[i] = _breadcrumbStyle.Render(p)
 		}
 	}
 	return strings.Join(rendered, sep) + "\n"

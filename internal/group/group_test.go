@@ -3,7 +3,7 @@
 package group
 
 import (
-	"os"
+	"strings"
 	"testing"
 )
 
@@ -12,13 +12,7 @@ mock:x:65537:
 `
 
 func TestParse(t *testing.T) {
-	f, _ := os.CreateTemp("", "group")
-	if err := os.WriteFile(f.Name(), []byte(_mockGroup), 0o644); err != nil {
-		t.Fatalf("write temp file: %s", err)
-	}
-	defer func() { _ = os.Remove(f.Name()) }()
-
-	got, err := Parse(f.Name())
+	got, err := Parse(strings.NewReader(_mockGroup))
 	if err != nil {
 		t.Fatalf("Parse: %s", err)
 	}

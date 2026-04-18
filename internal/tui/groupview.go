@@ -19,6 +19,7 @@ import (
 type GroupView struct {
 	list     list.Model
 	viewport viewport.Model
+	width    int
 }
 
 type groupItem group.Group
@@ -59,9 +60,10 @@ func newGroupView(groups []group.Group) GroupView {
 
 func (v GroupView) update(msg tea.Msg) (GroupView, tea.Cmd) {
 	if msg, ok := msg.(tea.WindowSizeMsg); ok {
+		v.width = msg.Width
 		lw := listWidth(msg.Width)
-		_listStyle = _listStyle.Width(lw)
-		h, vert := _listStyle.GetFrameSize()
+		ls := listStyle(lw)
+		h, vert := ls.GetFrameSize()
 		ph := lipgloss.Height(v.list.Paginator.View())
 		v.list.SetSize(lw-h, msg.Height-vert-ph-2)
 		v.viewport = viewport.New(viewport.WithWidth(msg.Width-lw-4), viewport.WithHeight(msg.Height-3))
@@ -79,7 +81,7 @@ func (v GroupView) view() string {
 
 func (v GroupView) listView() string {
 	v.list.Styles.Title = _listTitleStyle
-	return _listStyle.Render(v.list.View())
+	return listStyle(listWidth(v.width)).Render(v.list.View())
 }
 
 func (v GroupView) detailView() string {

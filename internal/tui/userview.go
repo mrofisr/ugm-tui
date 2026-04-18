@@ -30,11 +30,14 @@ var _detailTabs = []string{"overview", "ssh keys", "sudo rules", "activity"}
 
 // UserView displays the list of system users and their details.
 type UserView struct {
-	list       list.Model
-	viewport   viewport.Model
-	users      []passwd.User
-	showSystem bool
-	detailTab  detailTab
+	list         list.Model
+	viewport     viewport.Model
+	users        []passwd.User
+	showSystem   bool
+	detailTab    detailTab
+	width        int
+	cachedDetail string
+	lastSelected int // track selection changes
 }
 
 type userItem struct {
@@ -152,54 +155,66 @@ func (v UserView) stats() (total, locked, expiring, sys int) {
 func (v UserView) update(msg tea.Msg) (UserView, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		v.width = msg.Width
 		lw := listWidth(msg.Width)
-		_listStyle = _listStyle.Width(lw)
-		h, vert := _listStyle.GetFrameSize()
+		ls := listStyle(lw)
+		h, vert := ls.GetFrameSize()
 		ph := lipgloss.Height(v.list.Paginator.View())
-		v.list.SetSize(lw-h, msg.Height-vert-ph-4) // -4 for header bar + tab bar + status bar + padding
+		v.list.SetSize(lw-h, msg.Height-vert-ph-4)
 		v.viewport = viewport.New(viewport.WithWidth(msg.Width-lw-4), viewport.WithHeight(msg.Height-5))
-		v.viewport.SetContent(v.detailContent())
+		v.refreshDetail()
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "s":
 			v.showSystem = !v.showSystem
 			v.rebuildList()
+			v.refreshDetail()
 			return v, nil
 		case "1":
 			v.detailTab = _tabOverview
+			v.refreshDetail()
 			return v, nil
 		case "2":
 			v.detailTab = _tabSSHKeys
+			v.refreshDetail()
 			return v, nil
 		case "3":
 			v.detailTab = _tabSudoRules
+			v.refreshDetail()
 			return v, nil
 		case "4":
 			v.detailTab = _tabActivity
+			v.refreshDetail()
 			return v, nil
 		}
 	}
 	var cmd tea.Cmd
 	v.list, cmd = v.list.Update(msg)
+	// Refresh detail if selection changed
+	if v.list.Index() != v.lastSelected {
+		v.refreshDetail()
+	}
 	return v, cmd
 }
 
 func (v UserView) view() string {
-	v.viewport.SetContent(v.detailContent())
-
-	// Detail panel: tab bar + content
+	v.viewport.SetContent(v.cachedDetail)
 	tabBar := renderTabBar(_detailTabs, int(v.detailTab))
 	detailPanel := tabBar + v.viewport.View()
-
 	return lipgloss.JoinHorizontal(lipgloss.Top, v.listView(), detailPanel)
 }
 
 func (v UserView) listView() string {
 	v.list.Styles.Title = _listTitleStyle
-	return _listStyle.Render(v.list.View())
+	return listStyle(listWidth(v.width)).Render(v.list.View())
 }
 
-func (v UserView) detailContent() string {
+func (v *UserView) refreshDetail() {
+	v.cachedDetail = v.computeDetail()
+	v.lastSelected = v.list.Index()
+}
+
+func (v UserView) computeDetail() string {
 	it := v.list.SelectedItem()
 	if it == nil {
 		return ""
@@ -237,7 +252,7 @@ func (v UserView) renderOverview(ui userItem) string {
 	b.WriteString("\n" + _dividerStyle.Render("── account status "+strings.Repeat("─", max(0, w-19))) + "\n")
 	fmt.Fprintf(&b, "  status         %s\n", statusText)
 	fmt.Fprintf(&b, "  last login     %s\n", usermgmt.LastLogin(u.Details.Username))
-	fmt.Fprintf(&b, "  shell          %s\n", u.Details.HomeDir+"/../"+shellName(u))
+	fmt.Fprintf(&b, "  shell          %s\n", shellName(u))
 	fmt.Fprintf(&b, "  home           %s\n", u.Details.HomeDir)
 
 	// Password aging section
@@ -407,15 +422,8 @@ func (v UserView) renderActivity(u passwd.User) string {
 }
 
 func shellName(u passwd.User) string {
-	// Extract shell from passwd line (field 7), but we only have HomeDir
-	// Use getent to get the actual shell
-	out, err := exec.Command("getent", "passwd", u.Details.Username).Output()
-	if err != nil {
-		return "unknown"
-	}
-	fields := strings.Split(strings.TrimSpace(string(out)), ":")
-	if len(fields) >= 7 {
-		return fields[6]
+	if u.Shell != "" {
+		return u.Shell
 	}
 	return "unknown"
 }

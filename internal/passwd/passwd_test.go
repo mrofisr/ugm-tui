@@ -3,8 +3,8 @@
 package passwd
 
 import (
-	"os"
 	"os/user"
+	"strings"
 	"testing"
 )
 
@@ -13,13 +13,7 @@ mock:x:1:65537:mock:/mock:/sbin/mock
 `
 
 func TestParse(t *testing.T) {
-	f, _ := os.CreateTemp("", "passwd")
-	if err := os.WriteFile(f.Name(), []byte(_mockPwd), 0o644); err != nil {
-		t.Fatalf("write temp file: %s", err)
-	}
-	defer func() { _ = os.Remove(f.Name()) }()
-
-	got, err := Parse(f.Name())
+	got, err := Parse(strings.NewReader(_mockPwd))
 	if err != nil {
 		t.Fatalf("Parse: %s", err)
 	}
@@ -41,6 +35,9 @@ func TestParse(t *testing.T) {
 		if got[i].Details.HomeDir != want[i].Details.HomeDir {
 			t.Errorf("got homedir %s, want %s", got[i].Details.HomeDir, want[i].Details.HomeDir)
 		}
+		if got[i].Shell != want[i].Shell {
+			t.Errorf("got shell %s, want %s", got[i].Shell, want[i].Shell)
+		}
 	}
 }
 
@@ -50,10 +47,12 @@ func getWanted() []User {
 	return []User{
 		{
 			Details: user.User{Uid: "0", Gid: "0", Username: "test", Name: "test", HomeDir: "/test"},
+			Shell:   "/bin/test",
 			Groups:  []*user.Group{rootGroup},
 		},
 		{
 			Details: user.User{Uid: "1", Gid: "65537", Username: "mock", Name: "mock", HomeDir: "/mock"},
+			Shell:   "/sbin/mock",
 			Groups:  []*user.Group{nil},
 		},
 	}

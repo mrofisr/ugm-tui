@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/user"
 	"strings"
@@ -18,31 +19,31 @@ type Group struct {
 	Users   []*user.User
 }
 
-// Parse reads and parses groups from the given group-format file.
-func Parse(path string) ([]Group, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("open %s: %w", path, err)
-	}
-
+// Parse reads and parses groups from the given group-format reader.
+func Parse(r io.Reader) ([]Group, error) {
 	var groups []Group
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		g, err := parseLine(scanner.Text())
 		if err != nil {
-			_ = f.Close()
-			return nil, fmt.Errorf("parse %s: %w", path, err)
+			return nil, err
 		}
 		groups = append(groups, g)
 	}
-	_ = f.Close()
-
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("scan: %w", err)
+	}
 	return groups, nil
 }
 
 // Load is a convenience wrapper that parses /etc/group.
 func Load() ([]Group, error) {
-	return Parse("/etc/group")
+	f, err := os.Open("/etc/group")
+	if err != nil {
+		return nil, fmt.Errorf("open /etc/group: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	return Parse(f)
 }
 
 func parseLine(line string) (Group, error) {
@@ -51,20 +52,28 @@ func parseLine(line string) (Group, error) {
 		return Group{}, errors.New("unexpected number of fields in /etc/group")
 	}
 
-	g := Group{}
-	g.Details.Gid = fs[2]
-	g.Details.Name = fs[0]
-	g.Users = lookupUsers(fs[3])
-
-	return g, nil
+	return Group{
+		Details: user.Group{
+			Gid:  fs[2],
+			Name: fs[0],
+		},
+		Users: lookupUsers(fs[3]),
+	}, nil
 }
 
 func lookupUsers(names string) []*user.User {
+	if names == "" {
+		return nil
+	}
 	parts := strings.Split(names, ",")
 	users := make([]*user.User, 0, len(parts))
 	for _, name := range parts {
-		u, _ := user.Lookup(name)
-		users = append(users, u)
+		if name == "" {
+			continue
+		}
+		if u, err := user.Lookup(name); err == nil {
+			users = append(users, u)
+		}
 	}
 	return users
 }

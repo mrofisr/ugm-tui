@@ -28,7 +28,7 @@ func DeleteUser(username string) error {
 // SetPassword sets the login password for the given user.
 func SetPassword(username, password string) error {
 	cmd := exec.Command("chpasswd")
-	cmd.Stdin = strings.NewReader(fmt.Sprintf("%s:%s", username, password))
+	cmd.Stdin = strings.NewReader(username + ":" + password)
 	return cmd.Run()
 }
 
@@ -45,23 +45,32 @@ func SetSSHKey(username, pubkey string) error {
 	}
 
 	homeDir := fields[5]
-	uid, _ := strconv.Atoi(fields[2])
-	gid, _ := strconv.Atoi(fields[3])
+	uid, err := strconv.Atoi(fields[2])
+	if err != nil {
+		return fmt.Errorf("parse uid for %s: %w", username, err)
+	}
+	gid, err := strconv.Atoi(fields[3])
+	if err != nil {
+		return fmt.Errorf("parse gid for %s: %w", username, err)
+	}
 
 	sshDir := filepath.Join(homeDir, ".ssh")
 	if err := os.MkdirAll(sshDir, 0o700); err != nil {
-		return err
+		return fmt.Errorf("create .ssh dir: %w", err)
 	}
 
 	authFile := filepath.Join(sshDir, "authorized_keys")
 	if err := os.WriteFile(authFile, []byte(pubkey+"\n"), 0o600); err != nil {
-		return err
+		return fmt.Errorf("write authorized_keys: %w", err)
 	}
 
 	if err := os.Chown(sshDir, uid, gid); err != nil {
-		return err
+		return fmt.Errorf("chown .ssh: %w", err)
 	}
-	return os.Chown(authFile, uid, gid)
+	if err := os.Chown(authFile, uid, gid); err != nil {
+		return fmt.Errorf("chown authorized_keys: %w", err)
+	}
+	return nil
 }
 
 // LockUser disables login for the given user via usermod --lock.
@@ -103,14 +112,17 @@ func DeleteGroup(name string) error {
 func PasswordAging(username string) (string, error) {
 	out, err := exec.Command("chage", "-l", username).CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("%s: %s", err, strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("chage -l %s: %s: %w", username, strings.TrimSpace(string(out)), err)
 	}
 	return strings.TrimSpace(string(out)), nil
 }
 
 // LastLogin returns the last login time string for a user, or "Never" if none.
 func LastLogin(username string) string {
-	out, _ := exec.Command("lastlog", "-u", username).CombinedOutput()
+	out, err := exec.Command("lastlog", "-u", username).CombinedOutput()
+	if err != nil {
+		return "Never"
+	}
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 	if len(lines) < 2 {
 		return "Never"
@@ -119,15 +131,13 @@ func LastLogin(username string) string {
 	if len(fields) < 4 || fields[1] == "**Never" {
 		return "Never"
 	}
-	// fields after username: port, from, day month date time year (or similar)
 	return strings.Join(fields[3:], " ")
 }
 
-// AccountStatus returns a status string: "locked", "expired", or "active".
+// AccountStatus returns a status string: "locked", "expires <date>", or "active".
 func AccountStatus(username string) string {
 	// Check locked via passwd -S: second field is "L" if locked
-	out, err := exec.Command("passwd", "-S", username).CombinedOutput()
-	if err == nil {
+	if out, err := exec.Command("passwd", "-S", username).CombinedOutput(); err == nil {
 		fields := strings.Fields(string(out))
 		if len(fields) >= 2 && fields[1] == "L" {
 			return "locked"
@@ -135,21 +145,19 @@ func AccountStatus(username string) string {
 	}
 
 	// Check expired via chage -l: "Account expires" line
-	aging, err := exec.Command("chage", "-l", username).CombinedOutput()
-	if err == nil {
-		for _, line := range strings.Split(string(aging), "\n") {
-			if strings.HasPrefix(line, "Account expires") {
-				parts := strings.SplitN(line, ":", 2)
-				if len(parts) == 2 {
-					val := strings.TrimSpace(parts[1])
-					if val != "never" && val != "" {
-						// Parse and compare — but simpler: if passwd -S shows "PS" (password set)
-						// and there's an expiry date, check if it's past
-						// For simplicity, just report it
-						return "expires " + val
-					}
-				}
-			}
+	out, err := exec.Command("chage", "-l", username).CombinedOutput()
+	if err != nil {
+		return "active"
+	}
+	for line := range strings.SplitSeq(string(out), "\n") {
+		val, found := strings.CutPrefix(line, "Account expires")
+		if !found {
+			continue
+		}
+		val, _ = strings.CutPrefix(val, ":")
+		val = strings.TrimSpace(val)
+		if val != "never" && val != "" {
+			return "expires " + val
 		}
 	}
 
@@ -159,7 +167,7 @@ func AccountStatus(username string) string {
 func run(name string, args ...string) error {
 	out, err := exec.Command(name, args...).CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("%s: %s", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("%s %s: %s: %w", name, strings.Join(args, " "), strings.TrimSpace(string(out)), err)
 	}
 	return nil
 }

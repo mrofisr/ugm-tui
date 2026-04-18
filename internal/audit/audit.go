@@ -12,16 +12,16 @@ import (
 
 const _logPath = "/var/log/ugm-audit.log"
 
-var _operator string
+var _operator = resolveOperator()
 
-func init() {
-	// Detect who ran sudo (SUDO_USER), fall back to current user
-	_operator = os.Getenv("SUDO_USER")
-	if _operator == "" {
-		if u, err := user.Current(); err == nil {
-			_operator = u.Username
-		}
+func resolveOperator() string {
+	if u := os.Getenv("SUDO_USER"); u != "" {
+		return u
 	}
+	if u, err := user.Current(); err == nil {
+		return u.Username
+	}
+	return "unknown"
 }
 
 // Log writes an action entry to the audit log file.

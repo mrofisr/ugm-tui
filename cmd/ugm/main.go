@@ -54,7 +54,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	p := tea.NewProgram(tui.New())
+	m, err := tui.New()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ugm: %v\n", err)
+		os.Exit(1)
+	}
+
+	p := tea.NewProgram(m)
 
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "ugm: %v\n", err)

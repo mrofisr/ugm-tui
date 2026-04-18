@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"log"
 	"os/exec"
 	"strings"
 	"time"
@@ -41,14 +40,14 @@ type model struct {
 }
 
 // New creates the root TUI model.
-func New() tea.Model {
+func New() (tea.Model, error) {
 	users, err := passwd.Load()
 	if err != nil {
-		log.Fatalf("load users: %v", err)
+		return nil, fmt.Errorf("load users: %w", err)
 	}
 	groups, err := group.Load()
 	if err != nil {
-		log.Fatalf("load groups: %v", err)
+		return nil, fmt.Errorf("load groups: %w", err)
 	}
 
 	return model{
@@ -56,7 +55,7 @@ func New() tea.Model {
 		users:   newUserView(users),
 		groups:  newGroupView(groups),
 		manage:  newManageView(),
-	}
+	}, nil
 }
 
 func (m model) Init() tea.Cmd { return nil }
@@ -121,19 +120,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case _sidebarManage:
 		m.manage, cmd = m.manage.update(msg)
 		if m.manage.done {
-			// Propagate flash from manage view
+			var flashCmd tea.Cmd
 			if m.manage.status != "" {
-				flashCmd := m.setFlash(m.manage.status, m.manage.statusIsError)
-				users, _ := passwd.Load()
-				m.users.refresh(users)
-				m.sidebar = _sidebarUsers
-				m.users, cmd = m.users.update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
-				return m, tea.Batch(cmd, flashCmd)
+				flashCmd = m.setFlash(m.manage.status, m.manage.statusIsError)
 			}
 			users, _ := passwd.Load()
 			m.users.refresh(users)
 			m.sidebar = _sidebarUsers
 			m.users, cmd = m.users.update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
+			if flashCmd != nil {
+				cmd = tea.Batch(cmd, flashCmd)
+			}
 		}
 	}
 
