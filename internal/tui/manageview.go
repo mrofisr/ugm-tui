@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -11,6 +12,15 @@ import (
 	"github.com/mrofisr/ugm-tui/internal/audit"
 	"github.com/mrofisr/ugm-tui/internal/usermgmt"
 )
+
+// cmdResultMsg carries the result of an async command execution.
+type cmdResultMsg struct {
+	status  string
+	isError bool
+}
+
+// passwdAgingMsg carries password aging info text.
+type passwdAgingMsg string
 
 type manageAction int
 
@@ -40,6 +50,8 @@ type ManageView struct {
 	statusIsError bool
 	infoText      string
 	done          bool
+	spinner       spinner.Model
+	spinning      bool
 }
 
 // menuEntry represents a single menu item with icon and category.
@@ -63,7 +75,8 @@ var _menuEntries = []menuEntry{
 }
 
 func newManageView() ManageView {
-	return ManageView{action: _actionMenu}
+	s := spinner.New(spinner.WithSpinner(spinner.Dot))
+	return ManageView{action: _actionMenu, spinner: s}
 }
 
 func (v *ManageView) setTarget(username string) {
@@ -74,9 +87,56 @@ func (v *ManageView) setTarget(username string) {
 	v.statusIsError = false
 	v.infoText = ""
 	v.done = false
+	v.spinning = false
+}
+
+// runCmd starts the spinner and runs fn asynchronously, returning the result as cmdResultMsg.
+func (v ManageView) runCmd(label, auditAction, auditTarget, auditDetail string, fn func() error) (ManageView, tea.Cmd) {
+	v.spinning = true
+	v.status = ""
+	work := func() tea.Msg {
+		if err := fn(); err != nil {
+			return cmdResultMsg{
+				status:  _errorStyle.Render(fmt.Sprintf("%s failed: %s", label, err)),
+				isError: true,
+			}
+		}
+		if auditAction != "" {
+			audit.Log(auditAction, auditTarget, auditDetail)
+		}
+		return cmdResultMsg{
+			status:  _successStyle.Render(fmt.Sprintf("%s succeeded!", label)),
+			isError: false,
+		}
+	}
+	return v, tea.Batch(v.spinner.Tick, work)
 }
 
 func (v ManageView) update(msg tea.Msg) (ManageView, tea.Cmd) {
+	// Handle spinner ticks while spinning.
+	if v.spinning {
+		switch msg := msg.(type) {
+		case cmdResultMsg:
+			v.spinning = false
+			v.status = msg.status
+			v.statusIsError = msg.isError
+			v.action = _actionMenu
+			return v, nil
+		case passwdAgingMsg:
+			v.spinning = false
+			v.action = _actionPasswdAging
+			v.infoText = string(msg)
+			return v, nil
+		case tea.KeyPressMsg:
+			// Block input while spinning.
+			return v, nil
+		default:
+			var cmd tea.Cmd
+			v.spinner, cmd = v.spinner.Update(msg)
+			return v, cmd
+		}
+	}
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		return v, nil
@@ -125,6 +185,11 @@ func (v ManageView) update(msg tea.Msg) (ManageView, tea.Cmd) {
 }
 
 func (v ManageView) view() string {
+	if v.spinning {
+		s := v.spinner.View() + " Processing…"
+		return lipgloss.NewStyle().Padding(1, 2).Render(s)
+	}
+
 	var s string
 	switch v.action {
 	case _actionMenu:
@@ -192,14 +257,16 @@ func (v ManageView) updateMenu(msg tea.Msg) (ManageView, tea.Cmd) {
 				v.action = _actionExpiry
 				v.initExpiryInput()
 			case 5:
-				v.action = _actionPasswdAging
-				info, err := usermgmt.PasswordAging(v.targetUser)
-				if err != nil {
-					v.status = _errorStyle.Render(err.Error())
-					v.action = _actionMenu
-				} else {
-					v.infoText = info
-				}
+				v.spinning = true
+				v.status = ""
+				target := v.targetUser
+				return v, tea.Batch(v.spinner.Tick, func() tea.Msg {
+					info, err := usermgmt.PasswordAging(target)
+					if err != nil {
+						return cmdResultMsg{status: _errorStyle.Render(err.Error()), isError: true}
+					}
+					return passwdAgingMsg(info)
+				})
 			case 6:
 				v.action = _actionAddGroup
 				v.initGroupInput()
@@ -249,15 +316,8 @@ func (v ManageView) updateConfirm(msg tea.Msg, verb, cmdPreview string, fn func(
 	if msg, ok := msg.(tea.KeyPressMsg); ok {
 		switch msg.String() {
 		case "y":
-			if err := fn(); err != nil {
-				v.status = _errorStyle.Render(fmt.Sprintf("%s failed: %s", verb, err))
-				v.statusIsError = true
-			} else {
-				v.status = _successStyle.Render(fmt.Sprintf("User '%s' %sed!", v.targetUser, verb))
-				v.statusIsError = false
-				audit.Log(verb, v.targetUser, cmdPreview)
-			}
-			v.action = _actionMenu
+			label := verb + " user '" + v.targetUser + "'"
+			return v.runCmd(label, verb, v.targetUser, cmdPreview, fn)
 		case "n":
 			v.action = _actionMenu
 		}
@@ -343,36 +403,29 @@ func (v ManageView) submitCreate() (ManageView, tea.Cmd) {
 		v.statusIsError = true
 		return v, nil
 	}
-	if err := usermgmt.CreateUser(username, shell); err != nil {
-		v.status = _errorStyle.Render("Create failed: " + err.Error())
-		v.statusIsError = true
-		return v, nil
-	}
-	audit.Log("create-user", username, fmt.Sprintf("useradd -m -s %s %s", shell, username))
 
-	if secret != "" {
-		var err error
-		if v.authIsSSH {
-			err = usermgmt.SetSSHKey(username, secret)
-			if err == nil {
+	isSSH := v.authIsSSH
+	return v.runCmd("Create user '"+username+"'", "", "", "", func() error {
+		if err := usermgmt.CreateUser(username, shell); err != nil {
+			return err
+		}
+		audit.Log("create-user", username, fmt.Sprintf("useradd -m -s %s %s", shell, username))
+
+		if secret != "" {
+			if isSSH {
+				if err := usermgmt.SetSSHKey(username, secret); err != nil {
+					return err
+				}
 				audit.Log("set-ssh-key", username, "wrote authorized_keys")
-			}
-		} else {
-			err = usermgmt.SetPassword(username, secret)
-			if err == nil {
+			} else {
+				if err := usermgmt.SetPassword(username, secret); err != nil {
+					return err
+				}
 				audit.Log("set-password", username, "chpasswd")
 			}
 		}
-		if err != nil {
-			v.status = _errorStyle.Render("Auth setup failed: " + err.Error())
-			v.statusIsError = true
-			return v, nil
-		}
-	}
-	v.status = _successStyle.Render(fmt.Sprintf("User '%s' created successfully!", username))
-	v.statusIsError = false
-	v.action = _actionMenu
-	return v, nil
+		return nil
+	})
 }
 
 func (v ManageView) viewCreate() string {
@@ -427,17 +480,11 @@ func (v ManageView) updateExpiry(msg tea.Msg) (ManageView, tea.Cmd) {
 				v.statusIsError = true
 				return v, nil
 			}
-			cmd := fmt.Sprintf("chage --expiredate %s %s", date, v.targetUser)
-			if err := usermgmt.SetExpiry(v.targetUser, date); err != nil {
-				v.status = _errorStyle.Render("Set expiry failed: " + err.Error())
-				v.statusIsError = true
-			} else {
-				v.status = _successStyle.Render(fmt.Sprintf("Expiry for '%s' set to %s", v.targetUser, date))
-				v.statusIsError = false
-				audit.Log("set-expiry", v.targetUser, cmd)
-			}
-			v.action = _actionMenu
-			return v, nil
+			cmdStr := fmt.Sprintf("chage --expiredate %s %s", date, v.targetUser)
+			target := v.targetUser
+			return v.runCmd("Set expiry for '"+target+"' to "+date, "set-expiry", target, cmdStr, func() error {
+				return usermgmt.SetExpiry(target, date)
+			})
 		}
 	}
 
@@ -482,16 +529,10 @@ func (v ManageView) updateGroupInput(msg tea.Msg, verb string, fn func(string, s
 				v.statusIsError = true
 				return v, nil
 			}
-			if err := fn(v.targetUser, grp); err != nil {
-				v.status = _errorStyle.Render(fmt.Sprintf("%s group failed: %s", verb, err))
-				v.statusIsError = true
-			} else {
-				v.status = _successStyle.Render(fmt.Sprintf("User '%s' %sed group '%s'", v.targetUser, verb, grp))
-				v.statusIsError = false
-				audit.Log(verb+"-group", v.targetUser, "group="+grp)
-			}
-			v.action = _actionMenu
-			return v, nil
+			target := v.targetUser
+			return v.runCmd(verb+" group '"+grp+"' for '"+target+"'", verb+"-group", target, "group="+grp, func() error {
+				return fn(target, grp)
+			})
 		}
 	}
 
@@ -544,16 +585,9 @@ func (v ManageView) updateSingleInput(msg tea.Msg, verb string, fn func(string) 
 				v.statusIsError = true
 				return v, nil
 			}
-			if err := fn(val); err != nil {
-				v.status = _errorStyle.Render(fmt.Sprintf("%s failed: %s", verb, err))
-				v.statusIsError = true
-			} else {
-				v.status = _successStyle.Render(fmt.Sprintf("'%s' %sd!", val, verb))
-				v.statusIsError = false
-				audit.Log(verb, val, "")
-			}
-			v.action = _actionMenu
-			return v, nil
+			return v.runCmd(verb+" '"+val+"'", verb, val, "", func() error {
+				return fn(val)
+			})
 		}
 	}
 
